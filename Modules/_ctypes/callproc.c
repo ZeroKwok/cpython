@@ -1376,6 +1376,9 @@ static PyObject *load_library(PyObject *self, PyObject *args)
     if (!name)
         return NULL;
 
+    if (!GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "AddDllDirectory"))
+        load_flags &= ~LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
+
     Py_BEGIN_ALLOW_THREADS
     /* bpo-36085: Limit DLL search directories to avoid pre-loading
      * attacks and enable use of the AddDllDirectory function.
