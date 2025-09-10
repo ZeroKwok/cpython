@@ -244,16 +244,24 @@ dl_funcptr _PyImport_FindSharedFuncptrWindows(const char *prefix,
         /* Don't display a message box when Python can't load a DLL */
         old_mode = SetErrorMode(SEM_FAILCRITICALERRORS);
 #endif
-
-        /* bpo-36085: We use LoadLibraryEx with restricted search paths
-           to avoid DLL preloading attacks and enable use of the
-           AddDllDirectory function. We add SEARCH_DLL_LOAD_DIR to
-           ensure DLLs adjacent to the PYD are preferred. */
-        Py_BEGIN_ALLOW_THREADS
-        hDLL = LoadLibraryExW(wpathname, NULL,
-                              LOAD_LIBRARY_SEARCH_DEFAULT_DIRS |
-                              LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
-        Py_END_ALLOW_THREADS
+        if (GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "AddDllDirectory"))
+        {
+            /* bpo-36085: We use LoadLibraryEx with restricted search paths
+            to avoid DLL preloading attacks and enable use of the
+            AddDllDirectory function. We add SEARCH_DLL_LOAD_DIR to
+            ensure DLLs adjacent to the PYD are preferred. */
+            Py_BEGIN_ALLOW_THREADS
+            hDLL = LoadLibraryExW(wpathname, NULL,
+                                LOAD_LIBRARY_SEARCH_DEFAULT_DIRS |
+                                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
+            Py_END_ALLOW_THREADS
+        }
+        else
+        {
+            Py_BEGIN_ALLOW_THREADS
+            hDLL = LoadLibraryW(wpathname);
+            Py_END_ALLOW_THREADS
+        }
         PyMem_Free(wpathname);
 
 #ifdef MS_WINDOWS_DESKTOP
