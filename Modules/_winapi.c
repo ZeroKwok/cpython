@@ -2372,6 +2372,15 @@ progress_routine is reserved for future use, but is currently not
 implemented. Its value is ignored.
 [clinic start generated code]*/
 
+// The dynamic acquisition function is used for compatibility with Win7 SP1
+typedef HRESULT (WINAPI *CopyFile2Func)(LPCWSTR, LPCWSTR, const COPYFILE2_EXTENDED_PARAMETERS*);
+static CopyFile2Func getCopyFile2Func(void) {
+    static CopyFile2Func func = NULL;
+    if (!func)
+        func = (CopyFile2Func)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "CopyFile2");
+    return func;
+}
+
 static PyObject *
 _winapi_CopyFile2_impl(PyObject *module, LPCWSTR existing_file_name,
                        LPCWSTR new_file_name, DWORD flags,
@@ -2386,6 +2395,13 @@ _winapi_CopyFile2_impl(PyObject *module, LPCWSTR existing_file_name,
         return NULL;
     }
 
+    // The dynamic acquisition function is used for compatibility with Win7 SP1
+    CopyFile2Func pCopyFile2 = getCopyFile2Func();
+    if (!pCopyFile2) {
+        PyErr_SetString(PyExc_OSError, "CopyFile2 is not available on this system");
+        return NULL;
+    }
+
     params.dwCopyFlags = flags;
     /* For future implementation. We ignore the value for now so that
        users only have to test for 'CopyFile2' existing and not whether
@@ -2396,7 +2412,7 @@ _winapi_CopyFile2_impl(PyObject *module, LPCWSTR existing_file_name,
     }
     */
     Py_BEGIN_ALLOW_THREADS;
-    hr = CopyFile2(existing_file_name, new_file_name, &params);
+    hr = pCopyFile2(existing_file_name, new_file_name, &params);
     Py_END_ALLOW_THREADS;
     /* For future implementation.
     if (progress_routine != Py_None) {
@@ -2672,5 +2688,18 @@ static struct PyModuleDef winapi_module = {
 PyMODINIT_FUNC
 PyInit__winapi(void)
 {
+    // If CopyFile2 is not available, then remove this api from the interface
+    if (getCopyFile2Func() == NULL)
+    {
+        for (int i = 0; winapi_module.m_methods[i].ml_name != NULL; i++)
+        {
+            if (strcmp(winapi_module.m_methods[i].ml_name, "CopyFile2") == 0) {
+                winapi_module.m_methods[i].ml_name = NULL;
+                winapi_module.m_methods[i].ml_meth = NULL;
+                break;
+            }
+        }
+    }
+
     return PyModuleDef_Init(&winapi_module);
 }
