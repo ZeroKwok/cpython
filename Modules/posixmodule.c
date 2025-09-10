@@ -8833,6 +8833,8 @@ os_setpgrp_impl(PyObject *module)
 #ifdef HAVE_GETPPID
 
 #ifdef MS_WINDOWS
+// Use the implementation from python 3.6 to be compatible with Windows 7
+#if 0
 #include <processsnapshot.h>
 
 static PyObject*
@@ -8861,6 +8863,47 @@ win32_getppid(void)
     PssFreeSnapshot(process, snapshot);
     return result;
 }
+#else
+#include <tlhelp32.h>
+
+static PyObject*
+win32_getppid()
+{
+    HANDLE snapshot;
+    pid_t mypid;
+    PyObject* result = NULL;
+    BOOL have_record;
+    PROCESSENTRY32 pe;
+
+    mypid = getpid(); /* This function never fails */
+
+    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return PyErr_SetFromWindowsErr(GetLastError());
+
+    pe.dwSize = sizeof(pe);
+    have_record = Process32First(snapshot, &pe);
+    while (have_record) {
+        if (mypid == (pid_t)pe.th32ProcessID) {
+            /* We could cache the ulong value in a static variable. */
+            result = PyLong_FromPid((pid_t)pe.th32ParentProcessID);
+            break;
+        }
+
+        have_record = Process32Next(snapshot, &pe);
+    }
+
+    /* If our loop exits and our pid was not found (result will be NULL)
+     * then GetLastError will return ERROR_NO_MORE_FILES. This is an
+     * error anyway, so let's raise it. */
+    if (!result)
+        result = PyErr_SetFromWindowsErr(GetLastError());
+
+    CloseHandle(snapshot);
+
+    return result;
+}
+#endif
 #endif /*MS_WINDOWS*/
 
 
@@ -15745,8 +15788,14 @@ os__add_dll_directory_impl(PyObject *module, path_t *path)
         return NULL;
     }
 
+    // The dynamic acquisition function is used for compatibility with Win7 SP1
+    typedef DLL_DIRECTORY_COOKIE (WINAPI *AddDllDirectoryFunc)(PCWSTR);
+    AddDllDirectoryFunc pAddDllDirectory = (AddDllDirectoryFunc)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "AddDllDirectory");
+    if (!pAddDllDirectory)
+        return PyCapsule_New(cookie, "DLL directory cookie", NULL);
+
     Py_BEGIN_ALLOW_THREADS
-    if (!(cookie = AddDllDirectory(path->wide))) {
+    if (!(cookie = pAddDllDirectory(path->wide))) {
         err = GetLastError();
     }
     Py_END_ALLOW_THREADS
@@ -15787,8 +15836,15 @@ os__remove_dll_directory_impl(PyObject *module, PyObject *cookie)
     cookieValue = (DLL_DIRECTORY_COOKIE)PyCapsule_GetPointer(
         cookie, "DLL directory cookie");
 
+    // The dynamic acquisition function is used for compatibility with Win7 SP1
+    typedef BOOL (WINAPI *RemoveDllDirectoryFunc)(DLL_DIRECTORY_COOKIE);
+    RemoveDllDirectoryFunc pRemoveDllDirectory = (RemoveDllDirectoryFunc)GetProcAddress(
+        GetModuleHandleW(L"kernel32.dll"), "RemoveDllDirectory");
+    if (!pRemoveDllDirectory)
+        Py_RETURN_NONE;
+
     Py_BEGIN_ALLOW_THREADS
-    if (!RemoveDllDirectory(cookieValue)) {
+    if (!pRemoveDllDirectory(cookieValue)) {
         err = GetLastError();
     }
     Py_END_ALLOW_THREADS
