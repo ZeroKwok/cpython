@@ -15791,8 +15791,10 @@ os__add_dll_directory_impl(PyObject *module, path_t *path)
     // The dynamic acquisition function is used for compatibility with Win7 SP1
     typedef DLL_DIRECTORY_COOKIE (WINAPI *AddDllDirectoryFunc)(PCWSTR);
     AddDllDirectoryFunc pAddDllDirectory = (AddDllDirectoryFunc)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "AddDllDirectory");
-    if (!pAddDllDirectory)
+    if (!pAddDllDirectory) {
+        cookie = (DLL_DIRECTORY_COOKIE)1;
         return PyCapsule_New(cookie, "DLL directory cookie", NULL);
+    }
 
     Py_BEGIN_ALLOW_THREADS
     if (!(cookie = pAddDllDirectory(path->wide))) {
